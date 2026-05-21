@@ -1,0 +1,340 @@
+<div id="frame">
+  <div id="game"></div>
+</div>
+
+<style>
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+  }
+
+  #frame {
+    width: 100vw;
+    height: 100vh;
+    box-sizing: border-box;
+    border: 6px solid transparent;
+    border-image: linear-gradient(to bottom right, #dcdcdc, #8c8c8c, #2a2a2a) 1;
+    position: relative;
+    filter: drop-shadow(0 4px 8px rgba(0,0,0,0.25));
+  }
+
+  #game {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+    background: transparent;
+  }
+
+  .piece, #apple {
+    position: absolute;
+    pointer-events: none;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    transform: translate(-50%, -50%);
+    filter: none;
+  }
+
+  .piece {
+    width: 80px;
+    height: 80px;
+    background-image: url("https://raw.githubusercontent.com/clonedbanan/generalwebresources/main/body.png");
+    opacity: 0.82;
+  }
+
+  .head {
+    width: 92px;
+    height: 92px;
+    background-image: url("https://raw.githubusercontent.com/clonedbanan/generalwebresources/main/head.png");
+    opacity: 1;
+    z-index: 5;
+  }
+
+  #apple {
+    width: 60px;
+    height: 60px;
+    background-image: url("https://raw.githubusercontent.com/clonedbanan/generalwebresources/main/apple.png");
+    z-index: 3;
+    animation: pulse 0.8s infinite alternate ease-in-out;
+  }
+
+  #score, #message {
+    position: absolute;
+    left: 16px;
+    color: white;
+    font-family: Arial, sans-serif;
+    text-shadow: 0 2px 6px rgba(0,0,0,0.6);
+    z-index: 10;
+    user-select: none;
+  }
+
+  #score {
+    top: 12px;
+    font-size: 20px;
+  }
+
+  #message {
+    top: 42px;
+    font-size: 14px;
+  }
+
+  @keyframes pulse {
+    from {
+      transform: translate(-50%, -50%) scale(0.92);
+    }
+
+    to {
+      transform: translate(-50%, -50%) scale(1.08);
+    }
+  }
+</style>
+
+<div id="score">Score: 0</div>
+<div id="message">Move your mouse inside the border to start.</div>
+
+<script>
+  const game = document.getElementById("game");
+  const scoreText = document.getElementById("score");
+  const message = document.getElementById("message");
+
+  const SIZE = 80;
+  const HEAD_SIZE = 92;
+  const APPLE_SIZE = 60;
+  const STEP_DISTANCE = 18;
+  const HIT_DISTANCE = 34;
+
+  const HEAD_URL = "https://raw.githubusercontent.com/clonedbanan/generalwebresources/main/head.png";
+  const DEAD_HEAD_URL = "https://raw.githubusercontent.com/clonedbanan/generalwebresources/main/deadhead.png";
+  const EATING_HEAD_URL = "https://raw.githubusercontent.com/clonedbanan/generalwebresources/main/eatinghead.png";
+
+  const deathSound = new Audio(
+    "https://raw.githubusercontent.com/clonedbanan/generalwebresources/main/death.mp3"
+  );
+
+  const appleSounds = [
+    "https://raw.githubusercontent.com/clonedbanan/generalwebresources/main/apple1.mp3",
+    "https://raw.githubusercontent.com/clonedbanan/generalwebresources/main/apple2.mp3",
+    "https://raw.githubusercontent.com/clonedbanan/generalwebresources/main/apple3.mp3",
+    "https://raw.githubusercontent.com/clonedbanan/generalwebresources/main/apple4.mp3"
+  ];
+
+  let score = 0;
+  let gameOver = false;
+  let gameStarted = false;
+  let trail = [];
+
+  let mouseX = 0;
+  let mouseY = 0;
+
+  const head = document.createElement("div");
+  head.className = "piece head";
+  head.style.display = "none";
+  game.appendChild(head);
+
+  const apple = document.createElement("div");
+  apple.id = "apple";
+  apple.style.display = "none";
+  game.appendChild(apple);
+
+  function placeApple() {
+    const rect = game.getBoundingClientRect();
+
+    let x, y, tooClose;
+
+    do {
+      x = Math.random() * (rect.width - APPLE_SIZE) + APPLE_SIZE / 2;
+      y = Math.random() * (rect.height - APPLE_SIZE) + APPLE_SIZE / 2;
+
+      tooClose = trail.some(p => {
+        const dx = p.x - x;
+        const dy = p.y - y;
+        return Math.sqrt(dx * dx + dy * dy) < SIZE;
+      });
+    } while (tooClose);
+
+    apple.style.left = x + "px";
+    apple.style.top = y + "px";
+    apple.dataset.x = x;
+    apple.dataset.y = y;
+  }
+
+  function addTrailPiece(x, y) {
+    const piece = document.createElement("div");
+    piece.className = "piece";
+    piece.style.left = x + "px";
+    piece.style.top = y + "px";
+
+    game.appendChild(piece);
+
+    trail.unshift({ x, y, el: piece });
+
+    const maxLength = 8 + score * 3;
+
+    while (trail.length > maxLength) {
+      const old = trail.pop();
+      old.el.remove();
+    }
+  }
+
+  function distance(aX, aY, bX, bY) {
+    const dx = aX - bX;
+    const dy = aY - bY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  function playRandomAppleSound() {
+    const randomAppleSound =
+      appleSounds[Math.floor(Math.random() * appleSounds.length)];
+
+    const eatSound = new Audio(randomAppleSound);
+    eatSound.volume = 0.9;
+    eatSound.play();
+  }
+
+function endGame(text) {
+  if (gameOver) return;
+
+  gameOver = true;
+
+  head.style.backgroundImage = `url("${DEAD_HEAD_URL}")`;
+
+  deathSound.currentTime = 0;
+  deathSound.play();
+
+  message.textContent = text + " — click to restart";
+}
+
+  function startGameAtMouse(e) {
+    const rect = game.getBoundingClientRect();
+
+    mouseX = e.clientX - rect.left;
+    mouseY = e.clientY - rect.top;
+
+    const halfHead = HEAD_SIZE / 2;
+
+    if (
+      mouseX < halfHead ||
+      mouseX > rect.width - halfHead ||
+      mouseY < halfHead ||
+      mouseY > rect.height - halfHead
+    ) {
+      return;
+    }
+
+    gameStarted = true;
+
+    head.style.display = "block";
+    apple.style.display = "block";
+
+    head.style.left = mouseX + "px";
+    head.style.top = mouseY + "px";
+
+    message.textContent = "Eat apples. Do not hit your trail or leave the border.";
+
+    placeApple();
+  }
+
+  document.addEventListener("mousemove", (e) => {
+    if (gameOver) return;
+
+    if (!gameStarted) {
+      startGameAtMouse(e);
+      return;
+    }
+
+    const rect = game.getBoundingClientRect();
+
+    mouseX = e.clientX - rect.left;
+    mouseY = e.clientY - rect.top;
+
+    const halfHead = HEAD_SIZE / 2;
+
+    if (
+      mouseX < halfHead ||
+      mouseX > rect.width - halfHead ||
+      mouseY < halfHead ||
+      mouseY > rect.height - halfHead
+    ) {
+      endGame("Game Over: you left the border");
+    }
+  });
+
+  function restart() {
+    trail.forEach(p => p.el.remove());
+
+    trail = [];
+    score = 0;
+    gameOver = false;
+    gameStarted = false;
+
+    mouseX = 0;
+    mouseY = 0;
+
+    head.style.display = "none";
+    head.style.backgroundImage = `url("${HEAD_URL}")`;
+    apple.style.display = "none";
+
+    scoreText.textContent = "Score: 0";
+    message.textContent = "Move your mouse inside the border to start.";
+  }
+
+  document.addEventListener("click", () => {
+    if (gameOver) restart();
+  });
+
+  function loop() {
+    if (gameOver || !gameStarted) {
+      requestAnimationFrame(loop);
+      return;
+    }
+
+    head.style.left = mouseX + "px";
+    head.style.top = mouseY + "px";
+
+    if (
+      trail.length === 0 ||
+      distance(mouseX, mouseY, trail[0].x, trail[0].y) > STEP_DISTANCE
+    ) {
+      addTrailPiece(mouseX, mouseY);
+    }
+
+    const appleX = Number(apple.dataset.x);
+    const appleY = Number(apple.dataset.y);
+
+    if (distance(mouseX, mouseY, appleX, appleY) < 55) {
+
+  score++;
+
+  // temporary eating face
+  head.style.backgroundImage = `url("${EATING_HEAD_URL}")`;
+
+  setTimeout(() => {
+    if (!gameOver) {
+      head.style.backgroundImage = `url("${HEAD_URL}")`;
+    }
+  }, 100);
+
+  playRandomAppleSound();
+
+  scoreText.textContent = "Score: " + score;
+
+  placeApple();
+}
+
+    for (let i = 10; i < trail.length; i++) {
+      if (distance(mouseX, mouseY, trail[i].x, trail[i].y) < HIT_DISTANCE) {
+        endGame("Game Over: you hit your trail");
+        break;
+      }
+    }
+
+    requestAnimationFrame(loop);
+  }
+
+  restart();
+  loop();
+</script>
